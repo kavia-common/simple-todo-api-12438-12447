@@ -22,19 +22,26 @@ def create_todo(db: Session, title: str, description: str = "", status: str = "p
     if status not in ("pending", "done"):
         raise ValueError("Invalid status. Allowed values: 'pending', 'done'.")
 
-    res = db.execute(
+    # SQLite does not support RETURNING in older versions consistently; use last inserted id then fetch.
+    db.execute(
         text(
             """
             INSERT INTO todos (title, description, status)
             VALUES (:title, :description, :status)
-            RETURNING id, title, description, status
             """
         ),
         {"title": title, "description": description or "", "status": status},
     )
     db.commit()
-    row = res.mappings().first()
-    return dict(row)
+
+    # Get last inserted row id in a SQLite-friendly way
+    res = db.execute(text("SELECT last_insert_rowid() AS id"))
+    new_id = res.mappings().first()["id"]
+
+    # Return the newly created row
+    created = get_todo(db, int(new_id))
+    # get_todo doesn't commit, safe to return
+    return created if created is not None else {"id": int(new_id), "title": title, "description": description or "", "status": status}
 
 
 # PUBLIC_INTERFACE
@@ -74,11 +81,13 @@ def update_todo(
         sets.append(f"{k} = :{key}")
         params[key] = v
 
-    sql = text(f"UPDATE todos SET {', '.join(sets)} WHERE id = :id RETURNING id, title, description, status")
-    res = db.execute(sql, params)
+    # Execute update
+    sql = text(f"UPDATE todos SET {', '.join(sets)} WHERE id = :id")
+    db.execute(sql, params)
     db.commit()
-    row = res.mappings().first()
-    return dict(row) if row else None
+
+    # Fetch and return updated record
+    return get_todo(db, todo_id)
 
 
 # PUBLIC_INTERFACE
@@ -86,4 +95,5 @@ def delete_todo(db: Session, todo_id: int) -> bool:
     """Delete a todo by id. Returns True if a row was deleted."""
     res = db.execute(text("DELETE FROM todos WHERE id = :id"), {"id": todo_id})
     db.commit()
+    # SQLAlchemy 2.x rowcount with SQLite is supported
     return res.rowcount > 0

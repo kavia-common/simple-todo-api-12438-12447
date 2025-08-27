@@ -1,14 +1,10 @@
 from flask import Flask
 from flask_cors import CORS
 from flask_smorest import Api
-from dotenv import load_dotenv
 
 from .routes.health import blp as health_blp
 from .routes.todos import blp as todos_blp
 from .db import init_db
-
-# Initialize environment variables from .env if present
-load_dotenv()
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
@@ -22,9 +18,8 @@ app.config['OPENAPI_URL_PREFIX'] = '/docs'
 app.config["OPENAPI_SWAGGER_UI_PATH"] = ""
 app.config["OPENAPI_SWAGGER_UI_URL"] = "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
 
-# Delay DB initialization until after app creation to avoid import-time crashes.
-# We keep an eager call here but with resilience (init_db is now tolerant of failures).
-print("[app] Starting Todo CRUD API; initializing database schema (non-fatal if DB down)...")
+# Initialize SQLite schema
+print("[app] Starting Todo CRUD API; initializing SQLite database schema...")
 init_db()
 
 api = Api(app)
