@@ -3,6 +3,7 @@ from flask_smorest import Blueprint
 from flask.views import MethodView
 from flask import jsonify
 
+from sqlalchemy.exc import OperationalError
 from ..db import get_db_session
 from ..schemas import TodoCreateSchema, TodoUpdateSchema, TodoSchema
 from ..services.todos_service import list_todos, create_todo, update_todo, delete_todo, get_todo
@@ -15,6 +16,18 @@ blp = Blueprint(
 )
 
 
+def _open_db_session_safely():
+    """
+    Try to get a DB session and translate OperationalError into a 503 response payload.
+    """
+    try:
+        return get_db_session(), None
+    except OperationalError as e:
+        return None, jsonify({"message": "Database unavailable", "detail": str(e)}), HTTPStatus.SERVICE_UNAVAILABLE
+    except Exception as e:
+        return None, jsonify({"message": "Database initialization error", "detail": str(e)}), HTTPStatus.SERVICE_UNAVAILABLE
+
+
 @blp.route("", methods=["GET", "POST"])
 class TodosCollection(MethodView):
     """
@@ -25,7 +38,11 @@ class TodosCollection(MethodView):
     @blp.response(HTTPStatus.OK, TodoSchema(many=True), description="List all todos")
     def get(self):
         """Return list of all todos."""
-        db = get_db_session()
+        res = _open_db_session_safely()
+        if len(res) == 3:
+            # error tuple
+            return res[1], res[2]
+        db, _ = res
         try:
             todos = list_todos(db)
             return todos
@@ -47,7 +64,10 @@ class TodosCollection(MethodView):
         Returns:
         - JSON representation of the created todo, with HTTP 201.
         """
-        db = get_db_session()
+        res = _open_db_session_safely()
+        if len(res) == 3:
+            return res[1], res[2]
+        db, _ = res
         try:
             todo = create_todo(db, title=title, description=description, status=status)
             return todo, HTTPStatus.CREATED
@@ -79,7 +99,10 @@ class TodoItem(MethodView):
         Returns:
         - JSON of updated todo on success, 404 if not found.
         """
-        db = get_db_session()
+        res = _open_db_session_safely()
+        if len(res) == 3:
+            return res[1], res[2]
+        db, _ = res
         try:
             # Check existence first
             if get_todo(db, todo_id) is None:
@@ -104,7 +127,10 @@ class TodoItem(MethodView):
         - 204 No Content on success
         - 404 Not Found if the todo does not exist
         """
-        db = get_db_session()
+        res = _open_db_session_safely()
+        if len(res) == 3:
+            return res[1], res[2]
+        db, _ = res
         try:
             ok = delete_todo(db, todo_id)
             if not ok:
